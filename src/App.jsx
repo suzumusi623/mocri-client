@@ -1,5 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
+import { useEffect, useRef } from 'react';
+
+function App() {
+  const myAudioRef = useRef();
+
+  useEffect(() => {
+    // ユーザーのマイクを取得
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then((stream) => {
+        console.log('🎙️ マイク取得成功！');
+
+        // 自分の音声をaudio要素に流す（テスト用）
+        if (myAudioRef.current) {
+          myAudioRef.current.srcObject = stream;
+        }
+
+        // ここに後でWebRTC通信用の処理を追加していく
+      })
+      .catch((err) => {
+        console.error('マイク取得失敗💥', err);
+      });
+  }, []);
+
+  return (
+    <div>
+      <h1>Group Voice Chat App</h1>
+      {/* 音声を再生するaudioタグ（自分の声テスト用） */}
+      <audio ref={myAudioRef} autoPlay controls />
+    </div>
+  );
+}
+
+export default App;
 
 const socket = io('https://mocri-server.onrender.com');
 
