@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('https://mocri-server.onrender.com');
+const socket = io('mocri-clone-production.up.railway.app');
 
 export default function App() {
   const localStreamRef = useRef(null);
@@ -107,7 +107,7 @@ export default function App() {
   return (
     <div>
       <h1>もくり風 クローン（通話ルーム）</h1>
-      <p>別タブや別端末で開いて通話できるのよ！</p>
+      <p>別タブや別端末で開いて通話できるのよおおお！</p>
       <audio ref={localStreamRef} autoPlay muted />
     </div>
   );
