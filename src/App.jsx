@@ -31,7 +31,7 @@ function Lobby({ onJoinRoom }) {
   return (
     <div>
       <h2>ロビー - ルーム一覧</h2>
-      {rooms.length === 0 && <p>現在開かれているルームはありません。</p>}
+      {rooms.length === 0 && <p>現在開かれているルームはありませんよ。</p>}
       <ul>
         {rooms.map(room => (
           <li key={room.roomId}>
