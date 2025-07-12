@@ -1,50 +1,74 @@
 import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
-const SOCKET_URL = 'https://mocri-clone-production.up.railway.app'; // ここはあなたのサーバーURLに
-
-const socket = io(SOCKET_URL);
+const SOCKET_URL = 'https://mocri-clone-production.up.railway.app';
+const ROOM_ID = 'default-room';
 
 export default function App() {
-  const [rooms, setRooms] = useState([]);
-  const [currentRoom, setCurrentRoom] = useState(null);
-
-  // 通話用refs・state
+  const socketRef = useRef();
   const localStreamRef = useRef(null);
   const peersRef = useRef({});
-  const [, setPeersState] = useState({});
+  const [connected, setConnected] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const localStream = useRef(null);
 
-  // ロビー用: ルーム一覧取得
   useEffect(() => {
-    socket.emit('getRooms');
+    socketRef.current = io(SOCKET_URL);
 
-    socket.on('roomList', (list) => {
-      setRooms(list);
+    socketRef.current.on('connect', () => {
+      console.log('Socket接続:', socketRef.current.id);
+      setConnected(true);
+      socketRef.current.emit('join', ROOM_ID);
     });
 
-    return () => {
-      socket.off('roomList');
+    const setupMedia = async () => {
+      try {
+        localStream.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        if (localStreamRef.current) localStreamRef.current.srcObject = localStream.current;
+      } catch (e) {
+        console.error('マイクアクセスエラー:', e);
+      }
     };
-  }, []);
 
-  // ルーム参加 or 作成時のセットアップ
-  useEffect(() => {
-    if (!currentRoom) return;
+    setupMedia();
 
-    const setupCall = async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      if (localStreamRef.current) localStreamRef.current.srcObject = stream;
+    socketRef.current.on('user-joined', async (id) => {
+      console.log('user-joined:', id);
+      const peer = new RTCPeerConnection();
 
-      socket.emit('joinRoom', currentRoom);
+      localStream.current.getTracks().forEach(track => peer.addTrack(track, localStream.current));
 
-      socket.on('user-joined', async (id) => {
-        const peer = new RTCPeerConnection();
+      peer.onicecandidate = (e) => {
+        if (e.candidate) {
+          socketRef.current.emit('signal', { to: id, data: { candidate: e.candidate } });
+        }
+      };
 
-        stream.getTracks().forEach(track => peer.addTrack(track, stream));
+      peer.ontrack = (e) => {
+        const audio = new Audio();
+        audio.srcObject = e.streams[0];
+        audio.play().catch(() => {
+          console.warn('自動再生がブロックされました');
+        });
+      };
+
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      socketRef.current.emit('signal', { to: id, data: { sdp: offer } });
+
+      peersRef.current[id] = peer;
+    });
+
+    socketRef.current.on('signal', async ({ from, data }) => {
+      let peer = peersRef.current[from];
+      if (!peer) {
+        peer = new RTCPeerConnection();
+
+        localStream.current.getTracks().forEach(track => peer.addTrack(track, localStream.current));
 
         peer.onicecandidate = (e) => {
           if (e.candidate) {
-            socket.emit('signal', { to: id, data: { candidate: e.candidate } });
+            socketRef.current.emit('signal', { to: from, data: { candidate: e.candidate } });
           }
         };
 
@@ -56,106 +80,50 @@ export default function App() {
           });
         };
 
-        const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-        socket.emit('signal', { to: id, data: { sdp: offer } });
+        peersRef.current[from] = peer;
+      }
 
-        peersRef.current[id] = peer;
-        setPeersState({ ...peersRef.current });
-      });
-
-      socket.on('signal', async ({ from, data }) => {
-        let peer = peersRef.current[from];
-        if (!peer) {
-          peer = new RTCPeerConnection();
-
-          stream.getTracks().forEach(track => peer.addTrack(track, stream));
-
-          peer.onicecandidate = (e) => {
-            if (e.candidate) {
-              socket.emit('signal', { to: from, data: { candidate: e.candidate } });
-            }
-          };
-
-          peer.ontrack = (e) => {
-            const audio = new Audio();
-            audio.srcObject = e.streams[0];
-            audio.play().catch(() => {
-              console.warn('自動再生がブロックされました');
-            });
-          };
-
-          peersRef.current[from] = peer;
-          setPeersState({ ...peersRef.current });
+      if (data.sdp) {
+        await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        if (data.sdp.type === 'offer') {
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+          socketRef.current.emit('signal', { to: from, data: { sdp: answer } });
         }
+      } else if (data.candidate) {
+        await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
+      }
+    });
 
-        if (data.sdp) {
-          await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          if (data.sdp.type === 'offer') {
-            const answer = await peer.createAnswer();
-            await peer.setLocalDescription(answer);
-            socket.emit('signal', { to: from, data: { sdp: answer } });
-          }
-        } else if (data.candidate) {
-          await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
-        }
-      });
-
-      socket.on('user-left', (id) => {
-        if (peersRef.current[id]) {
-          peersRef.current[id].close();
-          delete peersRef.current[id];
-          setPeersState({ ...peersRef.current });
-        }
-      });
-    };
-
-    setupCall();
+    socketRef.current.on('user-left', (id) => {
+      if (peersRef.current[id]) {
+        peersRef.current[id].close();
+        delete peersRef.current[id];
+      }
+    });
 
     return () => {
-      socket.emit('leaveRoom', currentRoom);
+      socketRef.current.disconnect();
       Object.values(peersRef.current).forEach(peer => peer.close());
       peersRef.current = {};
-      setPeersState({});
     };
-  }, [currentRoom]);
+  }, []);
 
-  // ルーム作成
-  const createRoom = () => {
-    const roomId = prompt('新しいルーム名を入力してね！');
-    if (roomId && roomId.trim() !== '') {
-      socket.emit('createRoom', roomId);
-      setCurrentRoom(roomId);
-    }
+  // ミュートの切り替え
+  const toggleMute = () => {
+    if (!localStream.current) return;
+    localStream.current.getAudioTracks().forEach(track => {
+      track.enabled = !track.enabled;
+    });
+    setMuted(!muted);
   };
 
   return (
     <div>
-      {!currentRoom ? (
-        <>
-          <h1>ロビー - ルーム一覧</h1>
-          {rooms.length === 0 ? (
-            <p>開かれているルームはまだありません〜</p>
-          ) : (
-            <ul>
-              {rooms.map(room => (
-                <li key={room.roomId}>
-                  {room.roomId}（{room.userCount}人）
-                  <button onClick={() => setCurrentRoom(room.roomId)}>入室</button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button onClick={createRoom}>新しいルームを作成</button>
-        </>
-      ) : (
-        <>
-          <h1>ルーム: {currentRoom}</h1>
-          <p>通話中だよ〜</p>
-          <button onClick={() => setCurrentRoom(null)}>ロビーに戻る</button>
-          <audio ref={localStreamRef} autoPlay muted />
-        </>
-      )}
+      <h1>通話テスト（ミュート対応）</h1>
+      <p>{connected ? '接続中' : '接続待機中...'}</p>
+      <button onClick={toggleMute}>{muted ? 'ミュート解除' : 'ミュート'}</button>
+      <audio ref={localStreamRef} autoPlay muted />
     </div>
   );
 }
