@@ -5,71 +5,61 @@ const socket = io('https://mocri-server.onrender.com');
 
 export default function App() {
   const localStreamRef = useRef(null);
-  const peersRef = useRef({});  // peersをミュータブルに管理
-  const [, setPeersState] = useState({}); // UI更新用（オブジェクトの中身は直接使わない）
+  const peersRef = useRef({});
+  const [userCount, setUserCount] = useState(1);
+  const [, setPeersState] = useState({});
 
   useEffect(() => {
     const init = async () => {
-      // マイク取得
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (localStreamRef.current) localStreamRef.current.srcObject = stream;
 
       socket.emit('join', 'default-room');
 
+      socket.on('room-user-count', (count) => {
+        console.log('👥 参加人数:', count);
+        setUserCount(count);
+      });
+
       socket.on('user-joined', async (id) => {
-        console.log(`user-joined: ${id}`);
-
         const peer = new RTCPeerConnection();
-
-        // ローカルストリームをpeerに追加
         stream.getTracks().forEach(track => peer.addTrack(track, stream));
-
         peer.onicecandidate = (e) => {
           if (e.candidate) {
             socket.emit('signal', { to: id, data: { candidate: e.candidate } });
           }
         };
-
         peer.ontrack = (e) => {
           const audio = new Audio();
           audio.srcObject = e.streams[0];
           audio.play().catch(() => {
-            console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
+            console.warn('再生失敗。ユーザー操作が必要な場合があります');
           });
         };
-
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
         socket.emit('signal', { to: id, data: { sdp: offer } });
-
-        // peers管理
         peersRef.current[id] = peer;
         setPeersState({ ...peersRef.current });
       });
 
       socket.on('signal', async ({ from, data }) => {
-        console.log(`signal from ${from}`, data);
         let peer = peersRef.current[from];
-
         if (!peer) {
           peer = new RTCPeerConnection();
-
           stream.getTracks().forEach(track => peer.addTrack(track, stream));
-
           peer.onicecandidate = (e) => {
             if (e.candidate) {
               socket.emit('signal', { to: from, data: { candidate: e.candidate } });
             }
           };
-
           peer.ontrack = (e) => {
             const audio = new Audio();
             audio.srcObject = e.streams[0];
             audio.play().catch(() => {
-              console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
+              console.warn('自動再生ブロック');
             });
           };
-
           peersRef.current[from] = peer;
           setPeersState({ ...peersRef.current });
         }
@@ -97,7 +87,6 @@ export default function App() {
 
     init();
 
-    // クリーンアップ
     return () => {
       socket.disconnect();
       Object.values(peersRef.current).forEach(peer => peer.close());
@@ -107,7 +96,7 @@ export default function App() {
   return (
     <div>
       <h1>もくり風 クローン（通話ルーム）</h1>
-      <p>別タブや別端末で開いて通話できるのよ！</p>
+      <p>現在の参加人数: {userCount}人</p>
       <audio ref={localStreamRef} autoPlay muted />
     </div>
   );
