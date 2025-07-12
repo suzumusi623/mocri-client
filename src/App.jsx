@@ -148,33 +148,37 @@ export default function App() {
     setIsFullyMuted(newFullMute);
   };
 
-  return (
-    <div style={{
-      height: '100vh',
-      backgroundColor: '#f2f2f2',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'Arial, sans-serif'
-    }}>
-      <h1 style={{ marginBottom: 8 }}>ぱくり</h1>
-      <p style={{ marginBottom: 4 }}>別タブで開けば通話できます</p>
-      <p style={{ marginBottom: 20 }}>同時にリンクを踏んでね</p>
+return (
+  <div style={{
+    height: '100vh',
+    backgroundColor: '#f2f2f2',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'Arial, sans-serif',
+    textAlign: 'center',
+    padding: '20px',
+    boxSizing: 'border-box'
+  }}>
+    <h1 style={{ marginBottom: 8 }}>ぱくり</h1>
+    <p style={{ marginBottom: 4 }}>別タブで開けば通話できます</p>
+    <p style={{ marginBottom: 20 }}>同時にリンクを踏んでね</p>
 
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <button onClick={toggleMute} style={buttonStyle}>
-          {isMuted ? 'マイクON' : 'ミュート'}
-        </button>
-        <button onClick={toggleFullMute} style={buttonStyle}>
-          {isFullyMuted ? '完全ミュート解除' : '完全ミュート'}
-        </button>
-      </div>
-
-      <audio ref={localStreamRef} autoPlay muted />
+    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
+      <button onClick={toggleMute} style={buttonStyle}>
+        {isMuted ? 'マイクON' : 'ミュート'}
+      </button>
+      <button onClick={toggleFullMute} style={buttonStyle}>
+        {isFullyMuted ? '完全ミュート解除' : '完全ミュート'}
+      </button>
     </div>
-  );
-}
+
+    {/* 👇 このaudioを非表示かつ内側に */}
+    <audio ref={localStreamRef} autoPlay muted style={{ display: 'none' }} />
+  </div>
+);
+
 
 const buttonStyle = {
   padding: '10px 20px',
