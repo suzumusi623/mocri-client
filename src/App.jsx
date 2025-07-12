@@ -1,27 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('mocri-clone-production.up.railway.app');
+const SOCKET_URL = 'https://mocri-clone-production.up.railway.app'; // ここはあなたのサーバーURLに
+
+const socket = io(SOCKET_URL);
 
 export default function App() {
-  const localStreamRef = useRef(null);
-  const peersRef = useRef({});  // peersをミュータブルに管理
-  const [, setPeersState] = useState({}); // UI更新用（オブジェクトの中身は直接使わない）
+  const [rooms, setRooms] = useState([]);
+  const [currentRoom, setCurrentRoom] = useState(null);
 
+  // 通話用refs・state
+  const localStreamRef = useRef(null);
+  const peersRef = useRef({});
+  const [, setPeersState] = useState({});
+
+  // ロビー用: ルーム一覧取得
   useEffect(() => {
-    const init = async () => {
-      // マイク取得
+    socket.emit('getRooms');
+
+    socket.on('roomList', (list) => {
+      setRooms(list);
+    });
+
+    return () => {
+      socket.off('roomList');
+    };
+  }, []);
+
+  // ルーム参加 or 作成時のセットアップ
+  useEffect(() => {
+    if (!currentRoom) return;
+
+    const setupCall = async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       if (localStreamRef.current) localStreamRef.current.srcObject = stream;
 
-      socket.emit('join', 'default-room');
+      socket.emit('joinRoom', currentRoom);
 
       socket.on('user-joined', async (id) => {
-        console.log(`user-joined: ${id}`);
-
         const peer = new RTCPeerConnection();
 
-        // ローカルストリームをpeerに追加
         stream.getTracks().forEach(track => peer.addTrack(track, stream));
 
         peer.onicecandidate = (e) => {
@@ -34,7 +52,7 @@ export default function App() {
           const audio = new Audio();
           audio.srcObject = e.streams[0];
           audio.play().catch(() => {
-            console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
+            console.warn('自動再生がブロックされました');
           });
         };
 
@@ -42,15 +60,12 @@ export default function App() {
         await peer.setLocalDescription(offer);
         socket.emit('signal', { to: id, data: { sdp: offer } });
 
-        // peers管理
         peersRef.current[id] = peer;
         setPeersState({ ...peersRef.current });
       });
 
       socket.on('signal', async ({ from, data }) => {
-        console.log(`signal from ${from}`, data);
         let peer = peersRef.current[from];
-
         if (!peer) {
           peer = new RTCPeerConnection();
 
@@ -66,7 +81,7 @@ export default function App() {
             const audio = new Audio();
             audio.srcObject = e.streams[0];
             audio.play().catch(() => {
-              console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
+              console.warn('自動再生がブロックされました');
             });
           };
 
@@ -95,20 +110,52 @@ export default function App() {
       });
     };
 
-    init();
+    setupCall();
 
-    // クリーンアップ
     return () => {
-      socket.disconnect();
+      socket.emit('leaveRoom', currentRoom);
       Object.values(peersRef.current).forEach(peer => peer.close());
+      peersRef.current = {};
+      setPeersState({});
     };
-  }, []);
+  }, [currentRoom]);
+
+  // ルーム作成
+  const createRoom = () => {
+    const roomId = prompt('新しいルーム名を入力してね！');
+    if (roomId && roomId.trim() !== '') {
+      socket.emit('createRoom', roomId);
+      setCurrentRoom(roomId);
+    }
+  };
 
   return (
     <div>
-      <h1>もくり風 クローン（通話ルーム）</h1>
-      <p>別タブや別端末で開いて通話できるのよおおお！</p>
-      <audio ref={localStreamRef} autoPlay muted />
+      {!currentRoom ? (
+        <>
+          <h1>ロビー - ルーム一覧</h1>
+          {rooms.length === 0 ? (
+            <p>開かれているルームはまだありません〜</p>
+          ) : (
+            <ul>
+              {rooms.map(room => (
+                <li key={room.roomId}>
+                  {room.roomId}（{room.userCount}人）
+                  <button onClick={() => setCurrentRoom(room.roomId)}>入室</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button onClick={createRoom}>新しいルームを作成</button>
+        </>
+      ) : (
+        <>
+          <h1>ルーム: {currentRoom}</h1>
+          <p>通話中だよ〜</p>
+          <button onClick={() => setCurrentRoom(null)}>ロビーに戻る</button>
+          <audio ref={localStreamRef} autoPlay muted />
+        </>
+      )}
     </div>
   );
 }
