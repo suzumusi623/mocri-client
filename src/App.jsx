@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
-// サーバーURLを自分の環境に合わせて変更してください
+// サーバーのURLに変更してください
 const socket = io('https://mocri-clone-production.up.railway.app');
 
 function Lobby({ onJoinRoom }) {
@@ -10,15 +10,12 @@ function Lobby({ onJoinRoom }) {
   useEffect(() => {
     socket.emit('getRooms');
 
+    // ルームリスト更新を受け取る
     socket.on('roomList', (list) => {
       setRooms(list);
     });
 
-    // ルーム一覧の更新を受け取る
-    socket.on('roomList', (list) => {
-      setRooms(list);
-    });
-
+    // クリーンアップ
     return () => {
       socket.off('roomList');
     };
@@ -143,14 +140,9 @@ function Room({ roomId, onLeave }) {
     setup();
 
     return () => {
-      // ルーム退出通知（leaveRoomイベントを送る。サーバーで実装済みなら）
       socket.emit('leaveRoom', roomId);
-
-      // peersのクローズ
       Object.values(peersRef.current).forEach(peer => peer.close());
       peersRef.current = {};
-
-      // **socket.disconnect()は呼ばない！接続は維持**
     };
   }, [roomId]);
 
