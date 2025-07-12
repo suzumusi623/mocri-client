@@ -148,21 +148,36 @@ export default function App() {
     setIsFullyMuted(newFullMute);
   };
 
-  return (
+return (
+  <div style={{
+    minHeight: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: '20px',
+    fontFamily: 'Arial, sans-serif',
+    backgroundColor: '#f2f2f2',
+    boxSizing: 'border-box',
+  }}>
     <div style={{
-      height: '100vh',
-      backgroundColor: '#f2f2f2',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'Arial, sans-serif'
+      width: '100%',
+      maxWidth: '400px',
+      backgroundColor: '#fff',
+      borderRadius: '12px',
+      padding: '24px',
+      boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+      textAlign: 'center'
     }}>
-      <h1 style={{ marginBottom: 8 }}>ぱくり</h1>
-      <p style={{ marginBottom: 4 }}>別タブで開けば通話できます</p>
+      <h1 style={{ marginBottom: 12 }}>🎧 通話ルーム</h1>
+      <p style={{ marginBottom: 8 }}>別タブで開けば通話できます</p>
       <p style={{ marginBottom: 20 }}>同時にリンクを踏んでね</p>
 
-      <div style={{ display: 'flex', gap: '10px' }}>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+      }}>
         <button onClick={toggleMute} style={buttonStyle}>
           {isMuted ? 'マイクON' : 'ミュート'}
         </button>
@@ -170,18 +185,19 @@ export default function App() {
           {isFullyMuted ? '完全ミュート解除' : '完全ミュート'}
         </button>
       </div>
-
-      <audio ref={localStreamRef} autoPlay muted />
     </div>
-  );
-}
+    <audio ref={localStreamRef} autoPlay muted />
+  </div>
+);
+
 
 const buttonStyle = {
-  padding: '10px 20px',
+  padding: '12px 16px',
   backgroundColor: '#4caf50',
   color: 'white',
   border: 'none',
   borderRadius: '8px',
   cursor: 'pointer',
   fontSize: '16px',
+  width: '100%'
 };
