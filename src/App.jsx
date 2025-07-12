@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
 // サーバーURLに合わせてください
-const socket = io('https://mocri-server.onrender.com');
+const socket = io('https://mocri-clone-production.up.railway.app');
+
 
 function Lobby({ onJoinRoom }) {
   const [rooms, setRooms] = useState([]);
