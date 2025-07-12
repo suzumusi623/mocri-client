@@ -95,7 +95,7 @@ export default function App() {
 
   return (
     <div>
-      <h1>もくり風 クローン（通話ルーム）</h1>
+      <h1>もくり風 クローン（通話ルームだよ）</h1>
       <p>現在の参加人数: {userCount}人</p>
       <audio ref={localStreamRef} autoPlay muted />
     </div>
