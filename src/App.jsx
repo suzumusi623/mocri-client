@@ -171,3 +171,11 @@ export default function App() {
     </div>
   );
 }
+const broadcastRoomList = () => {
+  const roomList = [];
+  for (const [roomId, sockets] of rooms.entries()) {
+    roomList.push({ roomId, userCount: sockets.size });
+  }
+  console.log('📢 broadcastRoomList:', roomList);  // ←追加
+  io.emit('roomList', roomList);
+};
