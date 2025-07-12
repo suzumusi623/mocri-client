@@ -10,16 +10,17 @@ export default function App() {
   const [, setPeersState] = useState({});
 
   useEffect(() => {
+    // 先にイベントリスナーを登録（重複防止のため初期化の外に置く）
+    socket.on('room-user-count', (count) => {
+      console.log('👥 参加人数（更新）:', count);
+      setUserCount(count);
+    });
+
     const init = async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (localStreamRef.current) localStreamRef.current.srcObject = stream;
 
       socket.emit('join', 'default-room');
-
-      socket.on('room-user-count', (count) => {
-        console.log('👥 参加人数:', count);
-        setUserCount(count);
-      });
 
       socket.on('user-joined', async (id) => {
         const peer = new RTCPeerConnection();
@@ -96,7 +97,7 @@ export default function App() {
   return (
     <div>
       <h1>もくり風 クローン（通話ルーム）</h1>
-      <p>現在の参加人数ううううう: {userCount}人</p>
+      <p>現在の参加人数は・・・: {userCount}人</p>
       <audio ref={localStreamRef} autoPlay muted />
     </div>
   );
