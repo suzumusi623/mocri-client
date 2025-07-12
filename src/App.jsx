@@ -1,68 +1,178 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('https://mocri-clone-production.up.railway.app'); // サーバーURL
+// サーバーURLを自分の環境に合わせて変更してください
+const socket = io('https://mocri-clone-production.up.railway.app');
 
-export default function App() {
+function Lobby({ onJoinRoom }) {
   const [rooms, setRooms] = useState([]);
-  const [currentRoom, setCurrentRoom] = useState(null);
-  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    socket.on('room-list', (availableRooms) => {
-      setRooms(availableRooms);
+    socket.emit('getRooms');
+
+    socket.on('roomList', (list) => {
+      setRooms(list);
     });
 
-    socket.on('room-joined', (roomName) => {
-      setCurrentRoom(roomName);
-      setConnected(true);
-    });
-
-    socket.on('room-created', (roomName) => {
-      setCurrentRoom(roomName);
-      setConnected(true);
+    // ルーム一覧の更新を受け取る
+    socket.on('roomList', (list) => {
+      setRooms(list);
     });
 
     return () => {
-      socket.off('room-list');
-      socket.off('room-joined');
-      socket.off('room-created');
+      socket.off('roomList');
     };
   }, []);
 
   const handleCreateRoom = () => {
-    socket.emit('create-room'); // サーバー側で自動命名
+    const newRoomId = prompt('新しいルーム名を入力してください');
+    if (newRoomId) {
+      socket.emit('createRoom', newRoomId);
+      onJoinRoom(newRoomId);
+    }
   };
-
-  const handleJoinRoom = (roomName) => {
-    socket.emit('join-room', roomName);
-  };
-
-  if (connected) {
-    return (
-      <div>
-        <h2>ルーム: {currentRoom}</h2>
-        <p>通話に接続中（ここに通話処理を追加）</p>
-        {/* WebRTC 通話処理用の別のコンポーネントに分離可能 */}
-      </div>
-    );
-  }
 
   return (
     <div>
-      <h1>もくり風ロビー</h1>
-      <button onClick={handleCreateRoom}>ルームを作成</button>
-      <h3>公開中のルーム</h3>
-      {rooms.length === 0 ? (
-        <p>現在公開中のルームはありません</p>
+      <h2>ロビー - ルーム一覧</h2>
+      {rooms.length === 0 && <p>現在開かれているルームはありませんよ。</p>}
+      <ul>
+        {rooms.map(room => (
+          <li key={room.roomId}>
+            {room.roomId}（{room.userCount}人）
+            <button onClick={() => onJoinRoom(room.roomId)}>入室</button>
+          </li>
+        ))}
+      </ul>
+      <button onClick={handleCreateRoom}>新しいルームを作成</button>
+    </div>
+  );
+}
+
+function Room({ roomId, onLeave }) {
+  const localStreamRef = useRef(null);
+  const peersRef = useRef({});
+  const [, setPeersState] = useState({});
+  const [userCount, setUserCount] = useState(1);
+
+  useEffect(() => {
+    let stream;
+
+    const setup = async () => {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      if (localStreamRef.current) localStreamRef.current.srcObject = stream;
+
+      socket.emit('joinRoom', roomId);
+
+      socket.on('roomList', (list) => {
+        const room = list.find(r => r.roomId === roomId);
+        if (room) setUserCount(room.userCount);
+      });
+
+      socket.on('user-joined', async (id) => {
+        const peer = new RTCPeerConnection();
+        stream.getTracks().forEach(track => peer.addTrack(track, stream));
+
+        peer.onicecandidate = (e) => {
+          if (e.candidate) {
+            socket.emit('signal', { to: id, data: { candidate: e.candidate } });
+          }
+        };
+
+        peer.ontrack = (e) => {
+          const audio = new Audio();
+          audio.srcObject = e.streams[0];
+          audio.play().catch(() => {
+            console.warn('自動再生がブロックされました');
+          });
+        };
+
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+        socket.emit('signal', { to: id, data: { sdp: offer } });
+
+        peersRef.current[id] = peer;
+        setPeersState({ ...peersRef.current });
+      });
+
+      socket.on('signal', async ({ from, data }) => {
+        let peer = peersRef.current[from];
+        if (!peer) {
+          peer = new RTCPeerConnection();
+          stream.getTracks().forEach(track => peer.addTrack(track, stream));
+
+          peer.onicecandidate = (e) => {
+            if (e.candidate) {
+              socket.emit('signal', { to: from, data: { candidate: e.candidate } });
+            }
+          };
+
+          peer.ontrack = (e) => {
+            const audio = new Audio();
+            audio.srcObject = e.streams[0];
+            audio.play().catch(() => {
+              console.warn('自動再生がブロックされました');
+            });
+          };
+
+          peersRef.current[from] = peer;
+          setPeersState({ ...peersRef.current });
+        }
+
+        if (data.sdp) {
+          await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          if (data.sdp.type === 'offer') {
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            socket.emit('signal', { to: from, data: { sdp: answer } });
+          }
+        } else if (data.candidate) {
+          await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+      });
+
+      socket.on('user-left', (id) => {
+        if (peersRef.current[id]) {
+          peersRef.current[id].close();
+          delete peersRef.current[id];
+          setPeersState({ ...peersRef.current });
+        }
+      });
+    };
+
+    setup();
+
+    return () => {
+      // ルーム退出通知（leaveRoomイベントを送る。サーバーで実装済みなら）
+      socket.emit('leaveRoom', roomId);
+
+      // peersのクローズ
+      Object.values(peersRef.current).forEach(peer => peer.close());
+      peersRef.current = {};
+
+      // **socket.disconnect()は呼ばない！接続は維持**
+    };
+  }, [roomId]);
+
+  return (
+    <div>
+      <h2>ルーム: {roomId}</h2>
+      <p>現在の参加人数: {userCount}人</p>
+      <button onClick={onLeave}>ルームを退出する</button>
+      <audio ref={localStreamRef} autoPlay muted />
+    </div>
+  );
+}
+
+export default function App() {
+  const [currentRoom, setCurrentRoom] = useState(null);
+
+  return (
+    <div>
+      {!currentRoom ? (
+        <Lobby onJoinRoom={setCurrentRoom} />
       ) : (
-        <ul>
-          {rooms.map((room) => (
-            <li key={room}>
-              {room} <button onClick={() => handleJoinRoom(room)}>入室</button>
-            </li>
-          ))}
-        </ul>
+        <Room roomId={currentRoom} onLeave={() => setCurrentRoom(null)} />
       )}
     </div>
   );
