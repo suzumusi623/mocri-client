@@ -1,113 +1,148 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('https://mocri-server.onrender.com');
+const SOCKET_URL = 'https://mocri-server.onrender.com';
 
 export default function App() {
+  const [currentRoom, setCurrentRoom] = useState(null);
+  const [roomInput, setRoomInput] = useState('');
+
+  // 通話用のrefsとstate
   const localStreamRef = useRef(null);
-  const peersRef = useRef({});  // peersをミュータブルに管理
-  const [, setPeersState] = useState({}); // UI更新用（オブジェクトの中身は直接使わない）
+  const peersRef = useRef({});
+  const [, setPeersState] = useState({});
+  const socketRef = useRef(null);
 
   useEffect(() => {
+    if (!currentRoom) return;
+
+    socketRef.current = io(SOCKET_URL);
+
     const init = async () => {
-      // マイク取得
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      if (localStreamRef.current) localStreamRef.current.srcObject = stream;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        if (localStreamRef.current) localStreamRef.current.srcObject = stream;
 
-      socket.emit('join', 'default-room');
+        socketRef.current.emit('join', currentRoom);
 
-      socket.on('user-joined', async (id) => {
-        console.log(`user-joined: ${id}`);
-
-        const peer = new RTCPeerConnection();
-
-        // ローカルストリームをpeerに追加
-        stream.getTracks().forEach(track => peer.addTrack(track, stream));
-
-        peer.onicecandidate = (e) => {
-          if (e.candidate) {
-            socket.emit('signal', { to: id, data: { candidate: e.candidate } });
-          }
-        };
-
-        peer.ontrack = (e) => {
-          const audio = new Audio();
-          audio.srcObject = e.streams[0];
-          audio.play().catch(() => {
-            console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
+        socketRef.current.on('user-joined', async (id) => {
+          const peer = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
           });
-        };
-
-        const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-        socket.emit('signal', { to: id, data: { sdp: offer } });
-
-        // peers管理
-        peersRef.current[id] = peer;
-        setPeersState({ ...peersRef.current });
-      });
-
-      socket.on('signal', async ({ from, data }) => {
-        console.log(`signal from ${from}`, data);
-        let peer = peersRef.current[from];
-
-        if (!peer) {
-          peer = new RTCPeerConnection();
 
           stream.getTracks().forEach(track => peer.addTrack(track, stream));
 
           peer.onicecandidate = (e) => {
             if (e.candidate) {
-              socket.emit('signal', { to: from, data: { candidate: e.candidate } });
+              socketRef.current.emit('signal', { to: id, data: { candidate: e.candidate } });
             }
           };
 
           peer.ontrack = (e) => {
             const audio = new Audio();
             audio.srcObject = e.streams[0];
-            audio.play().catch(() => {
-              console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
-            });
+            audio.play().catch(() => {});
           };
 
-          peersRef.current[from] = peer;
-          setPeersState({ ...peersRef.current });
-        }
+          const offer = await peer.createOffer();
+          await peer.setLocalDescription(offer);
+          socketRef.current.emit('signal', { to: id, data: { sdp: offer } });
 
-        if (data.sdp) {
-          await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          if (data.sdp.type === 'offer') {
-            const answer = await peer.createAnswer();
-            await peer.setLocalDescription(answer);
-            socket.emit('signal', { to: from, data: { sdp: answer } });
+          peersRef.current[id] = peer;
+          setPeersState({ ...peersRef.current });
+        });
+
+        socketRef.current.on('signal', async ({ from, data }) => {
+          let peer = peersRef.current[from];
+          if (!peer) {
+            peer = new RTCPeerConnection({
+              iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+            });
+            stream.getTracks().forEach(track => peer.addTrack(track, stream));
+
+            peer.onicecandidate = (e) => {
+              if (e.candidate) {
+                socketRef.current.emit('signal', { to: from, data: { candidate: e.candidate } });
+              }
+            };
+
+            peer.ontrack = (e) => {
+              const audio = new Audio();
+              audio.srcObject = e.streams[0];
+              audio.play().catch(() => {});
+            };
+
+            peersRef.current[from] = peer;
+            setPeersState({ ...peersRef.current });
           }
-        } else if (data.candidate) {
-          await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
-        }
-      });
 
-      socket.on('user-left', (id) => {
-        if (peersRef.current[id]) {
-          peersRef.current[id].close();
-          delete peersRef.current[id];
-          setPeersState({ ...peersRef.current });
-        }
-      });
+          if (data.sdp) {
+            await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            if (data.sdp.type === 'offer') {
+              const answer = await peer.createAnswer();
+              await peer.setLocalDescription(answer);
+              socketRef.current.emit('signal', { to: from, data: { sdp: answer } });
+            }
+          } else if (data.candidate) {
+            await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
+          }
+        });
+
+        socketRef.current.on('user-left', (id) => {
+          if (peersRef.current[id]) {
+            peersRef.current[id].close();
+            delete peersRef.current[id];
+            setPeersState({ ...peersRef.current });
+          }
+        });
+
+      } catch (e) {
+        console.error('メディアデバイス取得エラー:', e);
+      }
     };
 
     init();
 
-    // クリーンアップ
     return () => {
-      socket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
       Object.values(peersRef.current).forEach(peer => peer.close());
+      peersRef.current = {};
     };
-  }, []);
+  }, [currentRoom]);
 
+  if (!currentRoom) {
+    // ロビー画面
+    return (
+      <div>
+        <h2>ロビー</h2>
+        <input
+          type="text"
+          placeholder="ルーム名を入力"
+          value={roomInput}
+          onChange={e => setRoomInput(e.target.value)}
+        />
+        <button
+          onClick={() => {
+            if (roomInput.trim() !== '') {
+              setCurrentRoom(roomInput.trim());
+            } else {
+              alert('ルーム名を入力してね');
+            }
+          }}
+        >
+          ルームに入る
+        </button>
+      </div>
+    );
+  }
+
+  // 通話画面
   return (
     <div>
-      <h1>もくり風 クローン（通話ルーム）</h1>
-      <p>別タブや別端末で開いて通話できるのよ！</p>
+      <h2>ルーム: {currentRoom}</h2>
+      <button onClick={() => setCurrentRoom(null)}>退出してロビーへ戻る</button>
       <audio ref={localStreamRef} autoPlay muted />
     </div>
   );
