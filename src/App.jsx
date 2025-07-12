@@ -166,8 +166,9 @@ export default function App() {
 
   return (
     <div>
-      <h1>もくり風 クローン（通話ルーム）</h1>
-      <p>別タブや別端末で開いて通話できるのよおおお！</p>
+      <h1>ぱくり</h1>
+      <p>別タブや別端末で開くと通話できます</p>
+      <p>誰かと同時にリンクを踏んでください</p>
       <button onClick={toggleMute}>{isMuted ? 'マイク解除' : 'ミュート'}</button>
       <button onClick={toggleFullMute}>{isFullyMuted ? '完全ミュート解除' : '完全ミュート'}</button>
       <audio ref={localStreamRef} autoPlay muted />
