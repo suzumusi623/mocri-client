@@ -5,12 +5,14 @@ const socket = io('https://mocri-clone-production.up.railway.app');
 
 export default function App() {
   const localStreamRef = useRef(null);
-  const peersRef = useRef({});
-  const [, setPeersState] = useState({});
+  const peersRef = useRef({});  // peersをミュータブルに管理
+  const [, setPeersState] = useState({}); // UI更新用（オブジェクトの中身は直接使わない）
   const localStream = useRef(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isFullyMuted, setIsFullyMuted] = useState(false);
-  const remoteAudioRefs = useRef({});
+  const [isMuted, setIsMuted] = useState(false);          // 自分の音声を相手に送るかどうか
+  const [isFullyMuted, setIsFullyMuted] = useState(false); // 自分の音声も相手の音声もOFF
+
+  // 再生中の相手音声のaudio要素を管理（複数想定）
+  const remoteAudioRefs = useRef({}); // { socketId: HTMLAudioElement }
 
   useEffect(() => {
     const init = async () => {
@@ -21,7 +23,10 @@ export default function App() {
         socket.emit('join', 'default-room');
 
         socket.on('user-joined', async (id) => {
+          console.log(`user-joined: ${id}`);
+
           const peer = new RTCPeerConnection();
+
           localStream.current.getTracks().forEach(track => peer.addTrack(track, localStream.current));
 
           peer.onicecandidate = (e) => {
@@ -31,18 +36,21 @@ export default function App() {
           };
 
           peer.ontrack = (e) => {
+            // 相手の音声を管理するaudioタグを作成
             if (!remoteAudioRefs.current[id]) {
               const audio = new Audio();
               audio.srcObject = e.streams[0];
               audio.autoplay = true;
-              audio.muted = isFullyMuted;
+              audio.muted = isFullyMuted; // 完全ミュートなら相手音声もミュート
               remoteAudioRefs.current[id] = audio;
             } else {
+              // 既にあるaudioタグに新ストリームセット
               remoteAudioRefs.current[id].srcObject = e.streams[0];
               remoteAudioRefs.current[id].muted = isFullyMuted;
             }
+            // 再生開始トライ
             remoteAudioRefs.current[id].play().catch(() => {
-              console.warn('自動再生ブロック');
+              console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
             });
           };
 
@@ -55,9 +63,12 @@ export default function App() {
         });
 
         socket.on('signal', async ({ from, data }) => {
+          console.log(`signal from ${from}`, data);
           let peer = peersRef.current[from];
+
           if (!peer) {
             peer = new RTCPeerConnection();
+
             localStream.current.getTracks().forEach(track => peer.addTrack(track, localStream.current));
 
             peer.onicecandidate = (e) => {
@@ -78,7 +89,7 @@ export default function App() {
                 remoteAudioRefs.current[from].muted = isFullyMuted;
               }
               remoteAudioRefs.current[from].play().catch(() => {
-                console.warn('自動再生ブロック');
+                console.warn('自動再生がブロックされました。ユーザー操作を促してください。');
               });
             };
 
@@ -111,7 +122,7 @@ export default function App() {
         });
 
       } catch (err) {
-        console.error('マイク取得エラー:', err);
+        console.error('マイクの取得でエラー:', err);
       }
     };
 
@@ -126,6 +137,7 @@ export default function App() {
     };
   }, []);
 
+  // 自分の音声だけミュート/解除切替
   const toggleMute = () => {
     if (!localStream.current) return;
     localStream.current.getAudioTracks().forEach(track => {
@@ -134,13 +146,17 @@ export default function App() {
     setIsMuted(prev => !prev);
   };
 
+  // 完全ミュート（自分の音声も相手の音声もミュート）切替
   const toggleFullMute = () => {
     if (!localStream.current) return;
+
+    // 自分の音声はミュート（off）に固定（本当はtrack.enabled = false）
     localStream.current.getAudioTracks().forEach(track => {
       track.enabled = false;
     });
     setIsMuted(true);
 
+    // 相手音声の再生音をミュート or ミュート解除
     const newFullMute = !isFullyMuted;
     Object.values(remoteAudioRefs.current).forEach(audio => {
       audio.muted = newFullMute;
@@ -148,44 +164,14 @@ export default function App() {
     setIsFullyMuted(newFullMute);
   };
 
-return (
-  <div style={{
-    height: '100vh',
-    backgroundColor: '#f2f2f2',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'Arial, sans-serif',
-    textAlign: 'center',
-    padding: '20px',
-    boxSizing: 'border-box'
-  }}>
-    <h1 style={{ marginBottom: 8 }}>ぱくり</h1>
-    <p style={{ marginBottom: 4 }}>別タブで開けば通話できます</p>
-    <p style={{ marginBottom: 20 }}>同時にリンクを踏んでね</p>
-
-    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
-      <button onClick={toggleMute} style={buttonStyle}>
-        {isMuted ? 'マイクON' : 'ミュート'}
-      </button>
-      <button onClick={toggleFullMute} style={buttonStyle}>
-        {isFullyMuted ? '完全ミュート解除' : '完全ミュート'}
-      </button>
+  return (
+    <div>
+      <h1>ぱくり</h1>
+      <p>まともに使えないよ</p>
+      <p>誰かと同時にURLをクリックしてね</p>
+      <button onClick={toggleMute}>{isMuted ? 'マイク解除' : 'ミュート'}</button>
+      <button onClick={toggleFullMute}>{isFullyMuted ? '完全ミュート解除' : '完全ミュート'}</button>
+      <audio ref={localStreamRef} autoPlay muted />
     </div>
-
-    {/* 👇 このaudioを非表示かつ内側に */}
-    <audio ref={localStreamRef} autoPlay muted style={{ display: 'none' }} />
-  </div>
-);
-
-
-const buttonStyle = {
-  padding: '10px 20px',
-  backgroundColor: '#ffea00ff',
-  color: 'white',
-  border: 'none',
-  borderRadius: '8px',
-  cursor: 'pointer',
-  fontSize: '16px',
-};
+  );
+}
