@@ -150,15 +150,14 @@ export default function App() {
 
 return (
   <div style={{
-    minHeight: '100vh',
+    height: '100vh',
+    width: '100vw',
     display: 'flex',
-    flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: '20px',
-    fontFamily: 'Arial, sans-serif',
     backgroundColor: '#f2f2f2',
     boxSizing: 'border-box',
+    padding: '20px'
   }}>
     <div style={{
       width: '100%',
@@ -167,9 +166,12 @@ return (
       borderRadius: '12px',
       padding: '24px',
       boxShadow: '0 0 10px rgba(0,0,0,0.1)',
-      textAlign: 'center'
+      textAlign: 'center',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center'
     }}>
-      <h1 style={{ marginBottom: 12 }}>🎧 通話ルーム</h1>
+      <h1 style={{ marginBottom: 12 }}>ぱくり</h1>
       <p style={{ marginBottom: 8 }}>別タブで開けば通話できます</p>
       <p style={{ marginBottom: 20 }}>同時にリンクを踏んでね</p>
 
@@ -177,6 +179,7 @@ return (
         display: 'flex',
         flexDirection: 'column',
         gap: '12px',
+        width: '100%'
       }}>
         <button onClick={toggleMute} style={buttonStyle}>
           {isMuted ? 'マイクON' : 'ミュート'}
