@@ -1,56 +1,63 @@
 import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('https://mocri-clone-production.up.railway.app');
+const SOCKET_URL = 'https://mocri-clone-production.up.railway.app';
+const ROOM_ID = 'test-room'; // ここは固定でテスト用
 
 export default function App() {
-  const [roomId, setRoomId] = useState('test-room'); // 固定ルーム名でOK
-  const [connected, setConnected] = useState(false);
+  const socketRef = useRef();
   const localStreamRef = useRef(null);
   const peersRef = useRef({});
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    socket.on('connect', () => {
-      console.log('Socket connected:', socket.id);
+    socketRef.current = io(SOCKET_URL);
+
+    socketRef.current.on('connect', () => {
+      console.log('Socket接続:', socketRef.current.id);
       setConnected(true);
-      socket.emit('joinRoom', roomId);
+      socketRef.current.emit('joinRoom', ROOM_ID);
     });
 
     let localStream;
 
-    const start = async () => {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      if (localStreamRef.current) localStreamRef.current.srcObject = localStream;
+    const setupMedia = async () => {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        if (localStreamRef.current) localStreamRef.current.srcObject = localStream;
+      } catch (e) {
+        console.error('マイクアクセスエラー:', e);
+      }
     };
 
-    start();
+    setupMedia();
 
-    socket.on('user-joined', async (id) => {
-      console.log('User joined:', id);
+    socketRef.current.on('user-joined', async (id) => {
+      console.log('user-joined:', id);
       const peer = new RTCPeerConnection();
 
       localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
 
       peer.onicecandidate = (e) => {
         if (e.candidate) {
-          socket.emit('signal', { to: id, data: { candidate: e.candidate } });
+          socketRef.current.emit('signal', { to: id, data: { candidate: e.candidate } });
         }
       };
 
       peer.ontrack = (e) => {
         const audio = new Audio();
         audio.srcObject = e.streams[0];
-        audio.play().catch(() => console.warn('Audio autoplay blocked'));
+        audio.play().catch(() => console.warn('再生ブロック'));
       };
 
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
-      socket.emit('signal', { to: id, data: { sdp: offer } });
+      socketRef.current.emit('signal', { to: id, data: { sdp: offer } });
 
       peersRef.current[id] = peer;
     });
 
-    socket.on('signal', async ({ from, data }) => {
+    socketRef.current.on('signal', async ({ from, data }) => {
       let peer = peersRef.current[from];
       if (!peer) {
         peer = new RTCPeerConnection();
@@ -58,14 +65,14 @@ export default function App() {
 
         peer.onicecandidate = (e) => {
           if (e.candidate) {
-            socket.emit('signal', { to: from, data: { candidate: e.candidate } });
+            socketRef.current.emit('signal', { to: from, data: { candidate: e.candidate } });
           }
         };
 
         peer.ontrack = (e) => {
           const audio = new Audio();
           audio.srcObject = e.streams[0];
-          audio.play().catch(() => console.warn('Audio autoplay blocked'));
+          audio.play().catch(() => console.warn('再生ブロック'));
         };
 
         peersRef.current[from] = peer;
@@ -76,14 +83,14 @@ export default function App() {
         if (data.sdp.type === 'offer') {
           const answer = await peer.createAnswer();
           await peer.setLocalDescription(answer);
-          socket.emit('signal', { to: from, data: { sdp: answer } });
+          socketRef.current.emit('signal', { to: from, data: { sdp: answer } });
         }
       } else if (data.candidate) {
         await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
       }
     });
 
-    socket.on('user-left', (id) => {
+    socketRef.current.on('user-left', (id) => {
       if (peersRef.current[id]) {
         peersRef.current[id].close();
         delete peersRef.current[id];
@@ -91,17 +98,16 @@ export default function App() {
     });
 
     return () => {
-      socket.disconnect();
+      socketRef.current.disconnect();
       Object.values(peersRef.current).forEach(peer => peer.close());
       peersRef.current = {};
     };
-  }, [roomId]);
+  }, []);
 
   return (
     <div>
       <h1>通話テスト</h1>
-      <p>部屋: {roomId}</p>
-      <p>{connected ? '接続済み' : '接続中...'}</p>
+      <p>{connected ? '接続中' : '接続待機中...'}</p>
       <audio ref={localStreamRef} autoPlay muted />
     </div>
   );
