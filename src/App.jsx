@@ -1,103 +1,62 @@
-import { useEffect, useRef, useState } from 'react';
-import io from 'socket.io-client';
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
 
-const socket = io('https://mocri-server.onrender.com');
+// サーバー初期化
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
 
-export default function App() {
-  const localStreamRef = useRef(null);
-  const peersRef = useRef({});
-  const [userCount, setUserCount] = useState(1);
-  const [, setPeersState] = useState({});
+// ルーム内の参加者数を取得
+const getRoomUserCount = (roomId) => {
+  const room = io.sockets.adapter.rooms.get(roomId);
+  return room ? room.size : 0;
+};
 
-  useEffect(() => {
-    const init = async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (localStreamRef.current) localStreamRef.current.srcObject = stream;
+// WebSocket 接続処理（1回だけ！）
+io.on('connection', (socket) => {
+  console.log('⚡ 新しいユーザー接続:', socket.id);
 
-      socket.emit('join', 'default-room');
+  socket.on('join', (roomId) => {
+    console.log(`🚪 ${socket.id} がルーム「${roomId}」に参加`);
+    socket.join(roomId);
 
-      socket.on('room-user-count', (count) => {
-        console.log('👥 参加人数:', count);
-        setUserCount(count);
-      });
+    // 現在の参加人数を送信
+    const count = getRoomUserCount(roomId);
+    console.log(`👥 現在の参加人数: ${count}`);
+    io.to(roomId).emit('room-user-count', count);
 
-      socket.on('user-joined', async (id) => {
-        const peer = new RTCPeerConnection();
-        stream.getTracks().forEach(track => peer.addTrack(track, stream));
-        peer.onicecandidate = (e) => {
-          if (e.candidate) {
-            socket.emit('signal', { to: id, data: { candidate: e.candidate } });
-          }
-        };
-        peer.ontrack = (e) => {
-          const audio = new Audio();
-          audio.srcObject = e.streams[0];
-          audio.play().catch(() => {
-            console.warn('再生失敗。ユーザー操作が必要な場合があります');
-          });
-        };
-        const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-        socket.emit('signal', { to: id, data: { sdp: offer } });
-        peersRef.current[id] = peer;
-        setPeersState({ ...peersRef.current });
-      });
+    // 他の参加者に通知（WebRTC用）
+    socket.to(roomId).emit('user-joined', socket.id);
 
-      socket.on('signal', async ({ from, data }) => {
-        let peer = peersRef.current[from];
-        if (!peer) {
-          peer = new RTCPeerConnection();
-          stream.getTracks().forEach(track => peer.addTrack(track, stream));
-          peer.onicecandidate = (e) => {
-            if (e.candidate) {
-              socket.emit('signal', { to: from, data: { candidate: e.candidate } });
-            }
-          };
-          peer.ontrack = (e) => {
-            const audio = new Audio();
-            audio.srcObject = e.streams[0];
-            audio.play().catch(() => {
-              console.warn('自動再生ブロック');
-            });
-          };
-          peersRef.current[from] = peer;
-          setPeersState({ ...peersRef.current });
-        }
+    // シグナリング
+    socket.on('signal', ({ to, data }) => {
+      console.log(`📶 signal from ${socket.id} to ${to}`);
+      io.to(to).emit('signal', { from: socket.id, data });
+    });
 
-        if (data.sdp) {
-          await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          if (data.sdp.type === 'offer') {
-            const answer = await peer.createAnswer();
-            await peer.setLocalDescription(answer);
-            socket.emit('signal', { to: from, data: { sdp: answer } });
-          }
-        } else if (data.candidate) {
-          await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
-        }
-      });
+    // 切断処理
+    socket.on('disconnect', () => {
+      console.log(`❌ ユーザー切断: ${socket.id}`);
+      socket.to(roomId).emit('user-left', socket.id);
 
-      socket.on('user-left', (id) => {
-        if (peersRef.current[id]) {
-          peersRef.current[id].close();
-          delete peersRef.current[id];
-          setPeersState({ ...peersRef.current });
-        }
-      });
-    };
+      // 少し遅らせて人数を更新（roomから抜ける処理が終わってから）
+      setTimeout(() => {
+        const updatedCount = getRoomUserCount(roomId);
+        console.log(`👥 切断後の人数: ${updatedCount}`);
+        io.to(roomId).emit('room-user-count', updatedCount);
+      }, 100);
+    });
+  });
+});
 
-    init();
-
-    return () => {
-      socket.disconnect();
-      Object.values(peersRef.current).forEach(peer => peer.close());
-    };
-  }, []);
-
-  return (
-    <div>
-      <h1>もくり風 クローン（通話ルームだよ）</h1>
-      <p>現在の参加人数: {userCount}人</p>
-      <audio ref={localStreamRef} autoPlay muted />
-    </div>
-  );
-}
+// サーバー起動
+server.listen(3001, () => {
+  console.log('✅ Server is running on http://localhost:3001');
+});
