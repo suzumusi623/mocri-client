@@ -7,19 +7,21 @@ const socket = io('https://mocri-clone-production.up.railway.app');
 function Lobby({ onJoinRoom }) {
   const [rooms, setRooms] = useState([]);
 
-  useEffect(() => {
-    socket.emit('getRooms');
+useEffect(() => {
+  socket.emit('getRooms');
 
-    // ルームリスト更新を受け取る
-    socket.on('roomList', (list) => {
-      setRooms(list);
-    });
+  // ルームリスト更新を受け取る
+  socket.on('roomList', (list) => {
+    console.log('roomList受信:', list);  // ←ここ追加
+    setRooms(list);
+  });
 
-    // クリーンアップ
-    return () => {
-      socket.off('roomList');
-    };
-  }, []);
+  // クリーンアップ
+  return () => {
+    socket.off('roomList');
+  };
+}, []);
+
 
   const handleCreateRoom = () => {
     const newRoomId = prompt('新しいルーム名を入力してください');
