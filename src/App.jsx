@@ -3,6 +3,27 @@ import io from 'socket.io-client';
 
 const socket = io('https://mocri-server.onrender.com');
 
+const [userCount, setUserCount] = useState(1); // 自分を含む初期値
+
+useEffect(() => {
+  const init = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (localStreamRef.current) localStreamRef.current.srcObject = stream;
+
+    socket.emit('join', 'default-room');
+
+    socket.on('room-user-count', (count) => {
+      console.log('👥 参加人数:', count);
+      setUserCount(count);
+    });
+
+    // ...既存のuser-joined / signal などの処理はそのままでOK
+  };
+
+  init();
+}, []);
+
+
 export default function App() {
   const localStreamRef = useRef(null);
   const peersRef = useRef({});  // peersをミュータブルに管理
@@ -107,6 +128,7 @@ export default function App() {
   return (
     <div>
       <h1>もくり風 クローン（通話ルーム）</h1>
+      <p>現在の参加人数: {userCount}人</p>
       <p>別タブや別端末で開いて通話できるのよ！</p>
       <audio ref={localStreamRef} autoPlay muted />
     </div>
